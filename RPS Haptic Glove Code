@@ -1,0 +1,172 @@
+#!/usr/bin/python
+#********************************************************************
+#Karnveer Gill
+#Zebra Thrust:   Rock Paper Scissors Robot, Player Glove Code
+#         	     - Track the up and down motion of the player wearing the glove
+#                - Detect the players hand gesture using flex sensor measurements 
+#         	     - Send and recieve serial data with an Arduino Mega
+ 
+import board
+import busio
+import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
+ 
+import smbus
+import math
+import time
+import numpy as np
+import serial
+import platform
+import RPi.GPIO as GPIO
+ 
+# Setting up serial communication with arduino mega over USB port
+port = "/dev/ttyACM0"
+ardMEGA = serial.Serial(port, 9600)
+ardMEGA.flushInput()
+ 
+# Initializing ADC i2c communication
+i2c = busio.I2C(board.SCL, board.SDA)
+ads = ADS.ADS1115(i2c)
+ 
+indexFlex = AnalogIn(ads, ADS.P1)
+ringFlex = AnalogIn(ads, ADS.P0)
+ 
+# Register
+power_mgmt_1 = 0x6b
+power_mgmt_2 = 0x6c
+ 
+#********************************************************************
+# This block of functions was based off a tutorial to interface with the MPU6050
+# accelerometer.  These function allow me to initialize the accelerometer and
+# interface with it via the i2c bus
+ 
+def read_byte(reg):
+    return bus.read_byte_data(address, reg)
+ 
+def read_word(reg):
+    h = bus.read_byte_data(address, reg)
+    l = bus.read_byte_data(address, reg+1)
+    value = (h << 8) + l
+    return value
+ 
+def read_word_2c(reg):
+    val = read_word(reg)
+    if (val >= 0x8000):
+        return -((65536 - val) + 1)
+    else:
+        return val
+ 
+bus = smbus.SMBus(1) # bus = smbus.SMBus(0) for Revision 1
+address = 0x68       # via 12cdetect
+ 
+# Activate to be able to address the module
+bus.write_byte_data(address, power_mgmt_1, 1)
+#********************************************************************
+ 
+# LED and Button GPIO pin definitions and initialization
+button = 22
+upLED = 27
+downLED = 17
+ 
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+GPIO.setup(upLED, GPIO.OUT)
+GPIO.setup(downLED, GPIO.OUT)
+GPIO.setup(button, GPIO.IN)
+ 
+# Up/Down Motion State Machine Threshold values based on
+# Z-Axis Gyro Data
+lowThresh1 = -5000
+highThresh1 = 5000
+check1 = 0
+ready = 3000
+ 
+thresh2 = 10000
+check2 = False
+ 
+thresh3 = -15000
+check3 = False
+ 
+thresh4 = 0
+ 
+# Open/Closed Finger Threshold values based on flex sensors.
+# if sensor value is larger than thresh then finger extended
+# if sensor value is less than thresh then figner is retracted
+indexThresh = 12000
+ringThresh = 15000
+ 
+# Serial communication values
+ComStart = b'1'
+ComReady = b'2'
+up = b'3'
+down = b'4'
+rock = b'5'
+paper = b'6'
+scissor = b'7'
+ardReset = 8
+ 
+# Software flags
+start = False
+UpDownCount = 0
+roundCount = 0
+ 
+while True:
+    if (GPIO.input(button) == 1):
+        start = True
+        ardMEGA.write(ComStart)
+ 
+    while(start):
+        gyro = read_word_2c(0x47)
+ 
+        # checking that hand is stationary for a few seconds then lets
+        # arduino MEGA know you are waiting and ready to play
+        if(lowThresh1 < gyro < highThresh1):
+        	check1 += 1
+        else:
+        	check1 = 0
+ 
+        if(check1 == ready):
+        	ardMEGA.write(ComReady)
+        	GPIO.output(upLED, GPIO.HIGH)
+        	GPIO.output(downLED, GPIO.HIGH)
+        	time.sleep(.5)
+        	GPIO.output(upLED, GPIO.LOW)
+        	GPIO.output(downLED, GPIO.LOW)
+        	
+ 
+        while((check1 == ready) & start):  	
+        	#checking for upward motion
+        	gyro = read_word_2c(0x47)
+                	
+       	 if(gyro > thresh2):
+            	check2 = True
+            	ardMEGA.write(up)
+            	GPIO.output(upLED, GPIO.HIGH)
+            	GPIO.output(downLED, GPIO.LOW)
+ 
+        	while(check2 == True):
+            	#checking for downward motion
+            	gyro = read_word_2c(0x47)
+            	if(gyro < thresh3):
+                	check3 = True
+                	ardMEGA.write(down)
+                	GPIO.output(downLED, GPIO.HIGH)
+                	GPIO.output(upLED, GPIO.LOW)
+ 
+            	while(check3 == True):
+                	#checking if downward motion has finished
+                	gyro = read_word_2c(0x47)
+                	if(gyro > thresh4):
+                    	UpDownCount += 1
+                    	check2 = False
+                    	check3 = False
+ 
+                    	if(UpDownCount == 3):
+                            UpDownCount = 0
+                        	roundCount +=1
+                        	print(roundCount)
+                        	if(roundCount == 3):
+                            	roundCount = 0
+                        	    check1 = 0
+                            	start = False
+                            	break
