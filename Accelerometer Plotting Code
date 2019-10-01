@@ -1,0 +1,108 @@
+#!/usr/bin/python
+#*****************************************************
+#Karnveer Gill
+#
+#Zebra Thrust: ROCK, PAPER, SCISSORS ROBOT GLOVE
+#              Up/Down Motion and finger flex plots
+
+
+# Libraries used to interface with ADS1115 analog to digital converter 
+import board
+import busio
+import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
+
+# Libraries used to interface with MPU6050 inertial measurment unit
+import smbus
+import math
+import time
+import numpy as np
+import serial
+import platform
+import matplotlib.pyplot as plt
+
+
+# MPU6050 Code.  This chunk of code creates function that allow us to access the appropriate registers
+# and gather information from the IMU 
+power_mgmt_1 = 0x6b
+power_mgmt_2 = 0x6c
+
+bus = smbus.SMBus(1) # bus = smbus.SMBus(0) for Revision 1
+address = 0x68       # via 12cdetect
+
+bus.write_byte_data(0x68, 0x1C, 0x00)
+
+def read_byte(reg):
+    return bus.read_byte_data(address, reg)
+
+def read_word(reg):
+    h = bus.read_byte_data(address, reg)
+    l = bus.read_byte_data(address, reg+1)
+    value = (h << 8) + l
+    return value
+
+def read_word_2c(reg):
+    val = read_word(reg)
+    if (val >= 0x8000):
+        return -((65536 - val) + 1)
+    else:
+        return val
+
+def dist(a,b):
+    return math.sqrt((a*a)+(b*b))
+
+def get_y_rotation(x,y,z):
+    radians = math.atan2(x, dist(y,z))
+    return math.degrees(radians)
+
+def get_x_rotation(x,y,z):
+    radians = math.atan2(y, dist(x,z))
+    return math.degrees(radians)
+
+
+# Activate to be able to address the ADC module
+bus.write_byte_data(address, power_mgmt_1, 1)
+
+# Setting up 
+i2c = busio.I2C(board.SCL, board.SDA)
+ads = ADS.ADS1115(i2c)
+
+indexFlex = AnalogIn(ads, ADS.P1)
+ringFlex = AnalogIn(ads, ADS.P0)
+
+# Settng up sampling Frequency so I can generate data with an associated time stamp
+sampFreq = 0.022   
+
+# Using pre-allocating size of arrays to increase processing efficiency
+trials = 300
+gyrozData = [None]*trials 
+accelData = [None]*trials
+indexData = [None]*trials
+ringData = [None]*trials
+
+i = 0
+
+while(i < trials):
+    print(" Index           Ring")
+    print(("%6d" % indexFlex.value), "           ", ("%6d" % ringFlex.value))
+    print("     ")
+    time.sleep(sampFreq)
+
+    gyrozData[i] = read_word_2c(0x47)
+    accelData[i] = read_word_2c(0x3b)
+    indexData[i] =indexFlex.value
+    ringData[i] = ringFlex.value
+
+    i += 1
+
+# Creating array of time values 
+time = np.linspace(0, sampFreq*trials, trials)
+
+# Plotting and formatting 
+plt.plot(time, accelData, label='Acceleration')
+plt.plot(time, indexData, color='m', label='Index Finger')
+plt.plot(time, ringData, color='g', label='Ring Finger')
+plt.plot(time, gyrozData, color='y', label='Gyro')
+plt.grid(True, 'both', 'both')
+plt.legend()
+plt.show()
