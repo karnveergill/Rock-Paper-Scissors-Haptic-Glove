@@ -1,0 +1,236 @@
+#!/usr/bin/python
+#********************************************************************
+#Karnveer Gill
+#
+#Zebra Thrust: ROCK PAPER SCISSORS ROBOT GLOVE
+#              Up/Down motion tracking test code 
+#
+# This code is for the glove portion of Rock Paper Scissors robot that
+# you play against.  In order to play against the hand we must be able to
+# detect what the player is doing.  The purpose of this code is to dectect
+# the players hand motion via accelerometer, and light up an LED when the 
+# player has shaken there hand up and down.
+
+import smbus
+import math
+import time
+import numpy as np
+import serial
+import platform
+import RPi.GPIO as GPIO
+
+# Register
+power_mgmt_1 = 0x6b
+power_mgmt_2 = 0x6c
+
+
+
+#********************************************************************
+# This block of functions was based off a tutorial to interface with the MPU6050
+# accelerometer.  I do not entirely understand how these functions work.  
+def read_byte(reg):
+    return bus.read_byte_data(address, reg)
+
+def read_word(reg):
+    h = bus.read_byte_data(address, reg)
+    l = bus.read_byte_data(address, reg+1)
+    value = (h << 8) + l
+    return value
+
+def read_word_2c(reg):
+    val = read_word(reg)
+    if (val >= 0x8000):
+        return -((65536 - val) + 1)
+    else:
+        return val
+
+def dist(a,b):
+    return math.sqrt((a*a)+(b*b))
+
+def get_y_rotation(x,y,z):
+    radians = math.atan2(x, dist(y,z))
+    return math.degrees(radians)
+
+def get_x_rotation(x,y,z):
+    radians = math.atan2(y, dist(x,z))
+    return math.degrees(radians)
+
+bus = smbus.SMBus(1) # bus = smbus.SMBus(0) for Revision 1
+address = 0x68       # via 12cdetect
+
+#Activate to be able to address the module
+bus.write_byte_data(address, power_mgmt_1, 1)
+#********************************************************************
+
+#The reset() function is just to turn on all my indicator lights at the begining
+def reset():
+    GPIO.output(led5, GPIO.LOW)
+    GPIO.output(led4, GPIO.LOW)
+    GPIO.output(led3, GPIO.LOW)
+    GPIO.output(led2, GPIO.LOW)
+    GPIO.output(led1, GPIO.LOW)
+    check1 = False #works because False = 0 
+    check2 = False
+    check3 = False
+    check4 = False
+    check5 = False
+
+#The wrap_up() function will be used to reset our variables and turn off our LED indicators
+#after our desired event is detected
+def wrap_up():
+    GPIO.output(led3, GPIO.LOW)
+    GPIO.output(led2, GPIO.LOW)
+    GPIO.output(led1, GPIO.LOW)
+    check1 = False #works because False = 0 
+    check2 = False
+    check3 = False
+    
+#The GPIO_init() function is used to initialize our GPIO pins to setup the LED commands 
+def GPIO_init():
+    GPIO.setmode(GPIO.BCM) 
+    GPIO.setup(led1, GPIO.OUT)
+    GPIO.setup(led2, GPIO.OUT)
+    GPIO.setup(led3, GPIO.OUT)
+    GPIO.setup(led4, GPIO.OUT)
+    GPIO.setup(led5, GPIO.OUT)
+
+def win_seq():
+    time.sleep(0.25)
+    GPIO.output(led5, GPIO.LOW)
+    GPIO.output(led4, GPIO.LOW)
+    GPIO.output(led3, GPIO.LOW)
+    GPIO.output(led2, GPIO.LOW)
+    GPIO.output(led1, GPIO.LOW)
+    time.sleep(0.25)
+    GPIO.output(led5, GPIO.HIGH)
+    GPIO.output(led4, GPIO.HIGH)
+    GPIO.output(led3, GPIO.HIGH)
+    GPIO.output(led2, GPIO.HIGH)
+    GPIO.output(led1, GPIO.HIGH)
+    time.sleep(0.25)
+    GPIO.output(led5, GPIO.LOW)
+    GPIO.output(led4, GPIO.LOW)
+    GPIO.output(led3, GPIO.LOW)
+    GPIO.output(led2, GPIO.LOW)
+    GPIO.output(led1, GPIO.LOW)
+    time.sleep(0.25)
+    GPIO.output(led5, GPIO.HIGH)
+    GPIO.output(led4, GPIO.HIGH)
+    GPIO.output(led3, GPIO.HIGH)
+    GPIO.output(led2, GPIO.HIGH)
+    GPIO.output(led1, GPIO.HIGH)
+    time.sleep(0.25)
+    GPIO.output(led5, GPIO.LOW)
+    GPIO.output(led4, GPIO.LOW)
+    GPIO.output(led3, GPIO.LOW)
+    GPIO.output(led2, GPIO.LOW)
+    GPIO.output(led1, GPIO.LOW)
+    time.sleep(0.25)
+    GPIO.output(led5, GPIO.HIGH)
+    GPIO.output(led4, GPIO.HIGH)
+    GPIO.output(led3, GPIO.HIGH)
+    GPIO.output(led2, GPIO.HIGH)
+    GPIO.output(led1, GPIO.HIGH)
+                           
+    
+# Pin Variables, reference BCM RPi Pin Scheme 
+led1 = 4
+led2 = 17
+led3 = 27
+led4 = 22
+led5 = 23
+
+#Enable GPIO Pins
+GPIO_init()
+
+
+# Stage 1 threshold variables 
+lowThresh1 = 95
+highThresh1 = 105
+check1 = False #checking stage 1 conditions 
+ready = 50 #as in "ready to play" 
+
+# Stage 2 threshold variables
+thresh2 = 150
+check2 = False
+
+# Stage 3 threshold variables
+thresh3 = 100 
+check3 = False
+
+# Stage 4 threshold variables
+thresh4 = 50
+check4 = False
+
+# Stage 5 threshold variables
+thresh5 = 100
+check5 = 0
+
+reset()
+i = 0
+while(i <= 5000):
+    print ("-------------")
+    print ("Accelerometer")
+    print ("-------------")
+
+    acceleration_xout = read_word_2c(0x3b)
+    accel = acceleration_xout / 16384.0 *100
+    
+    print ("acceleration_xout: ", ("%6d" % acceleration_xout), "scaled: ", accel)
+    
+    if (lowThresh1 < accel < highThresh1):
+        check1 = check1+1
+    else:
+        check1 = 0
+    
+    while (check1 == ready & check5 < 3):
+        GPIO.output(led1, GPIO.HIGH)
+        acceleration_xout = read_word_2c(0x3b)
+        accel = acceleration_xout / 16384.0 *100
+        
+        if(accel > thresh2):
+            check2 = True
+            GPIO.output(led2, GPIO.HIGH)
+        
+        while(check2 == True):
+            acceleration_xout = read_word_2c(0x3b)
+            accel = acceleration_xout / 16384.0 *100
+            
+            if(accel < thresh3):
+                check3 = True
+                GPIO.output(led3, GPIO.HIGH)
+            
+            while(check3 == True):
+                acceleration_xout = read_word_2c(0x3b)
+                accel = acceleration_xout / 16384.0 *100
+                
+                if(accel < thresh4):
+                    check4 = True
+                    GPIO.output(led4, GPIO.HIGH)
+                
+                while(check4 == True):
+                    acceleration_xout = read_word_2c(0x3b)
+                    accel = acceleration_xout / 16384.0 *100
+                    
+                    if(accel > thresh5):
+                        GPIO.output(led5, GPIO.HIGH)
+                        check5 = 1+check5
+                        
+                        if(check5 == 3):
+                            check1 = False
+                            check5 = False
+                            win_seq()    
+                            
+                        GPIO.output(led5, GPIO.LOW)
+                        GPIO.output(led4, GPIO.LOW)
+                        GPIO.output(led3, GPIO.LOW)
+                        GPIO.output(led2, GPIO.LOW)
+                        GPIO.output(led1, GPIO.LOW)
+                        #check1 = False #works because False = 0 
+                        check2 = False
+                        check3 = False
+                        check4 = False
+                        #check5 = False
+                        
+                        
+    i += 1
